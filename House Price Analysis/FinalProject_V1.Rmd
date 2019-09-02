@@ -1,0 +1,699 @@
+---
+title: "final project"
+author: "Abhishek,Tyler,Meghna"
+date: "April 30, 2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+# Load packages and set path
+library(dplyr)
+library(readr)
+library(tidyverse)
+library(missForest)
+library(caret)
+library(arm)
+library(corrplot)
+library(chipPCR)
+setwd("C:/Users/Abhishek Anney/Desktop/Stats and Pred/Project work House prices/house-prices-advanced-regression-techniques/Final Project")
+
+```
+
+## Introduction
+
+## STEP 1:
+### Data inspection, data modeling and cleaning
+
+```{r}
+# inspect the data
+
+#STEP 1:
+#Loading in the data
+#We downloaded the data from Kaggle
+train <- read.csv("train.csv")
+
+
+test <- read.csv("test.csv")
+```
+
+
+## STEP 2:
+### Cleaning Train data
+```{r}
+# STEP 2:
+#Clean and organize the dataset
+
+#Working on TRAIN DATA first:
+str(train)
+
+
+summary(train)
+
+
+colnames(train)
+
+
+head(train)
+
+
+glimpse(train)
+
+
+
+#View(train)
+
+```
+
+### Removing columns that are not going to be useful to us for the analysis.
+
+```{r}
+# Using the below command to get the index of the column that needs to be removed.
+which( colnames(train)=="Id")
+
+
+#Creating a new dataframe with the uncessary columns removed
+train_new <- subset(train, select=-c(1,7,58,72,73,74,75,76,46,37))
+
+
+
+#inspect the train_new data:
+str(train_new)
+summary(train_new)
+colnames(train_new)
+head(train_new)
+glimpse(train_new)
+dim(train_new)
+#View(train_new)
+
+```
+
+
+### Checking Numeric data varaibles
+```{r}
+#Checking Numeric data varaibles.Creating a vector of numeric features
+
+hist_numeric <- train_new[,sapply(train_new, is.numeric)]
+
+
+dim(hist_numeric)#There are 33 numeric variables in the dataset.
+
+
+#printing the numeric column namnes
+colnames(hist_numeric) 
+
+#Plot the distribution of all the numeric variables
+# There are some variables which are categorical but encoded as numeric in the data set and evenly distributed.
+for(i in 1:length(names(hist_numeric))){
+  hist(hist_numeric[,i], main = names(hist_numeric)[i])
+}
+``` 
+
+
+### Checking Categorical data or factored data
+```{r}
+
+hist_cat <- train_new[,sapply(train_new, is.factor)]
+
+
+dim(hist_cat)
+#There are 38 coulmns with categorical data or have values as strings.
+
+#printing the cat column namnes
+colnames(hist_cat)
+
+
+#Ploting the categorical feature distribution
+for(i in 1:length(names(hist_cat))){
+  barplot(table(train_new[,i]),horiz = T,col=c(rep("brown")),main = names(hist_cat)[i])
+}   
+
+```
+
+##STEP 3:
+### Removing outliers from the train data and referencing it to a new dataframe.
+```{r}
+
+#T_new_otlrs_rm is "Train new Outliers removed";
+
+#inspecting data after removing outliers
+T_new_otlrs_rm <- subset(train_new, GrLivArea< 4000)
+
+dim(T_new_otlrs_rm)
+
+nrow(train_new) - nrow(T_new_otlrs_rm)
+
+# We removed 4 rows considering them as outliers for our analytical model
+ 
+
+```
+
+##STEP 4:
+### Addressing Missing observations using missForest
+
+```{r}
+sum(is.na(T_new_otlrs_rm)) # 868 missing values in train
+
+
+
+sum(is.na(T_new_otlrs_rm)) / (nrow(T_new_otlrs_rm) * ncol(T_new_otlrs_rm)) # about 1% of the data is missing.
+
+
+
+sum(is.na(test)) / (nrow(test) * ncol(test)) # about 5% data is missing in test set
+   
+
+#The variables that have missing observations and their count
+na_count <- colnames(T_new_otlrs_rm)[colSums(is.na(T_new_otlrs_rm)) > 0]
+colSums(is.na(T_new_otlrs_rm[c(na_count)]))
+
+
+#Applying Missforest on the filtered data to address missing observations.
+set.seed(418)
+cimp <- missForest(train_new)$ximp
+
+
+
+
+dim(cimp)
+
+
+
+  
+glimpse(cimp)
+
+
+
+summary(cimp)
+
+
+
+head(cimp)
+
+
+
+#Checking if all the records/observations are complete for our analyis.True in our case
+all(complete.cases(cimp))
+```
+
+
+## EDA
+
+
+```{r}
+#Taking a look at the target variable "SalesPrice"
+summary(cimp$SalePrice)
+ggplot(cimp, aes(SalePrice)) + 
+  geom_histogram(binwidth = 5000) + 
+  scale_x_continuous() +
+  geom_vline(xintercept = mean(cimp$SalePrice), col = 2) + 
+  geom_vline(xintercept = median(cimp$SalePrice), col = 4) +
+  labs(title = "Histogram of Sale Price") + 
+  xlab("Sale Price") + 
+  ylab("Count") + 
+  theme_minimal()
+
+
+
+
+
+# Our target variable is right skewed so we need to log transform it for a normal distribution
+ggplot(cimp, aes(log(SalePrice))) + 
+  geom_histogram(binwidth = .05) + 
+  scale_x_continuous() +
+  geom_vline(xintercept = mean(log(cimp$SalePrice)), col = 2) + 
+  geom_vline(xintercept = median(log(cimp$SalePrice)), col = 4) +
+  labs(title = "Histogram of Log Sale Price") + 
+  xlab("Log Sale Price") + 
+  ylab("Count") + 
+  theme_minimal()
+
+
+
+
+#Corr Plot 
+corr <- subset(cimp, select=-c(1,7,58,72,73,74,75,76,46,37))
+library(corrplot)
+library(RColorBrewer)
+cimpNumeric <- select_if(corr, is.numeric)
+corNumeric <- cor(cimpNumeric)
+corrplot::corrplot(corNumeric, method = "circle", type = "upper",
+                   order = "hclust", sig.level = 0.01, insig = "blank")
+
+
+
+
+
+
+
+#Distribution of Feature with missing observations BEFORE and AFTER MISSFOREST
+
+#[1] "BsmtQual"
+
+ggplot(T_new_otlrs_rm, aes(BsmtQual)) + 
+  geom_bar() +
+  labs(title = "Distribution of BsmtQual BEFORE MISSFOREST")
+
+
+
+ggplot(cimp, aes(BsmtQual)) + 
+  geom_bar() +
+  labs(title = "Distribution of BsmtQual CIMP")
+
+
+
+#[2]"BsmtCond" 
+
+ggplot(T_new_otlrs_rm, aes(BsmtCond)) + 
+  geom_bar() +
+  labs(title = "Distribution of BsmtCond BEFORE MISSFOREST")
+
+
+
+ggplot(cimp, aes(BsmtCond)) + 
+  geom_bar() +
+  labs(title = "Distribution of BsmtCond CIMP")
+
+
+
+
+#[3]"BsmtExposure" 
+ggplot(T_new_otlrs_rm, aes(BsmtExposure)) + 
+  geom_bar() +
+  labs(title = "Distribution of BsmtExposure BEFORE MISSFOREST")
+
+
+
+
+ggplot(cimp, aes(BsmtExposure)) + 
+  geom_bar() +
+  labs(title = "Distribution of BsmtExposure CIMP")
+
+
+
+
+
+#[4]"BsmtFinType1"
+ggplot(T_new_otlrs_rm, aes(BsmtFinType1)) + 
+  geom_bar() +
+  labs(title = "Distribution of BsmtFinType1 BEFORE MISSFOREST")
+
+
+
+
+ggplot(cimp, aes(BsmtFinType1)) + 
+  geom_bar() +
+  labs(title = "Distribution of BsmtFinType1 CIMP")
+
+
+
+
+#[5]"BsmtFinType2" 
+ggplot(T_new_otlrs_rm, aes(BsmtFinType2)) + 
+  geom_bar() +
+  labs(title = "Distribution of BsmtFinType2 BEFORE MISSFOREST")
+
+
+
+
+ggplot(cimp, aes(BsmtFinType2)) + 
+  geom_bar() +
+  labs(title = "Distribution of BsmtFinType2 CIMP")
+
+
+
+
+#[6]"Electrical"
+ggplot(T_new_otlrs_rm, aes(Electrical)) + 
+  geom_bar() +
+  labs(title = "Distribution of Electrical BEFORE MISSFOREST")
+
+
+
+
+ggplot(cimp, aes(Electrical)) + 
+  geom_bar() +
+  labs(title = "Distribution of Electrical CIMP")
+
+
+
+
+#[7] "GarageType"
+ggplot(T_new_otlrs_rm, aes(GarageType)) + 
+  geom_bar() +
+  labs(title = "Distribution of GarageType BEFORE MISSFOREST")
+
+
+
+
+ggplot(cimp, aes(GarageType)) + 
+  geom_bar() +
+  labs(title = "Distribution of GarageType CIMP")
+
+
+
+
+#[8]"GarageYrBlt"  
+ggplot(T_new_otlrs_rm, aes(GarageYrBlt)) + 
+  geom_bar() +
+  labs(title = "Distribution of GarageYrBlt BEFORE MISSFOREST")
+
+
+
+
+ggplot(cimp, aes(GarageYrBlt)) + 
+  geom_bar() +
+  labs(title = "Distribution of GarageYrBlt CIMP")
+
+
+
+
+#[9]"GarageFinish" 
+
+ggplot(T_new_otlrs_rm, aes(GarageFinish)) + 
+  geom_bar() +
+  labs(title = "Distribution of GarageFinish BEFORE MISSFOREST")
+
+
+
+
+ggplot(cimp, aes(GarageFinish)) + 
+  geom_bar() +
+  labs(title = "Distribution of GarageFinish CIMP")
+
+
+
+
+#[10]"GarageQual"   
+ggplot(T_new_otlrs_rm, aes(GarageQual)) + 
+  geom_bar() +
+  labs(title = "Distribution of GarageQual BEFORE MISSFOREST")
+
+
+
+
+ggplot(cimp, aes(GarageQual)) + 
+  geom_bar() +
+  labs(title = "Distribution of GarageQual CIMP")
+
+
+
+
+#[11]"GarageCond"
+ggplot(T_new_otlrs_rm, aes(GarageCond)) + 
+  geom_bar() +
+  labs(title = "Distribution of GarageCond BEFORE MISSFOREST")
+
+
+
+
+ggplot(cimp, aes(GarageCond)) + 
+  geom_bar() +
+  labs(title = "Distribution of GarageCond CIMP")
+
+
+
+
+```
+
+## CREATING MODELS:
+
+```{r}
+#RMSE
+rmse <- function(actual, predicted) sqrt(mean((actual- predicted)^2))
+
+
+#M1
+# LINEAR MODEL UNLOGGED
+unlogged <- (lm(SalePrice ~ 
+             TotalBsmtSF*GrLivArea
+           +YearBuilt
+           + OverallQual 
+           + TotalBsmtSF
+           +GrLivArea
+           +LotArea
+           +GarageArea, data= cimp))
+
+
+
+display(unlogged)#R-Squared = 0.78
+
+ 
+plot(unlogged,which =1) # residual plot
+
+
+predict(unlogged)[1:10] # first 10 predictions
+
+
+
+#M2
+# LINEAR MODEL UNLOGGED
+logged <- (lm(log(SalePrice) ~ 
+             TotalBsmtSF*GrLivArea
+           +YearBuilt
+           + OverallQual 
+           + TotalBsmtSF
+           +GrLivArea
+           +LotArea
+           + GarageArea, data= cimp))
+
+
+display(logged)#R-Squared = 0.85
+
+
+
+#Residual Plot of Logged model is better.
+plot(logged,which =1)
+
+
+
+
+#M3
+#LM LOGGED and STANDERDISED
+full_model <- lm(log(SalePrice) ~
+                   TotalBsmtSF*GrLivArea+
+                   YearBuilt+ 
+                   OverallQual +
+                   factor(KitchenQual)+
+                   factor(BldgType)+
+                   LotArea+
+                   CentralAir +
+                   factor(Neighborhood), 
+                 data= cimp)%>%
+  standardize
+
+
+
+display(full_model)#R-Squared = 0.88
+
+
+#Residual plot of standardized logged model is the best. We will take over the caret approach from here now with more significant predictors.
+
+plot(full_model,which=1)
+
+
+#INSAMPLE RMSE OF THE LM MODELS
+rmse(cimp$SalePrice, predict(unlogged, cimp))
+
+
+
+rmse(cimp$SalePrice, exp(fitted(logged))*mean(exp(residuals(logged))))
+
+
+
+rmse(cimp$SalePrice, exp(fitted(full_model))*mean(exp(residuals(full_model))))
+
+
+```
+
+
+#Caret Models:
+
+```{r}
+  
+#RMSE FUNCTION FOR CARET LM MODEL
+RMSE3 <- function(x,y){
+  a <- sqrt(sum((log(x)-log(y))^2)/length(y))
+  return(a)
+}
+
+
+# LM MODEL WITH CARET 
+
+# CREATING NEW FEATURES FOR MODELING TotBathrooms,TotalSqFeet
+cimp$TotBathrooms <- cimp$FullBath + (cimp$HalfBath*0.5) + cimp$BsmtFullBath + (cimp$BsmtHalfBath*0.5)
+cimp$TotalSqFeet <- cimp$GrLivArea + cimp$TotalBsmtSF
+
+
+
+#setting Train control
+tc = trainControl(method = "repeatedcv", number = 10, repeats = 10)
+set.seed(418)
+lm_caret <- train(log(SalePrice) ~
+                 TotalBsmtSF*GrLivArea+
+                 YearBuilt+
+                 factor(SaleCondition)+ 
+                 OverallQual+
+                 factor(KitchenQual)+
+                 factor(BldgType)+
+                 log(LotArea)+
+                 OverallCond+
+                 LotFrontage+
+                 TotBathrooms*TotalSqFeet+
+                 Fireplaces+
+                 factor(LotShape)+
+                 factor(Neighborhood),
+               data= cimp,
+               preProcess = c("center", "scale"),
+               method="lm",
+               na.action = na.pass,
+               trControl= tc)
+#out of sample RMSE : 0.1263673,R-Squared : 0.900315
+lm_caret
+
+
+# Insample RMSE : 0.1203257, R-squared:  0.9095 
+summary(lm_caret)
+RMSE3(cimp$SalePrice, exp(fitted(lm_caret))*mean(exp(residuals(lm_caret))))
+
+
+
+
+
+## lASSO MODEL
+set.seed(418)
+lasso <- train(log(SalePrice) ~
+                 TotalBsmtSF*GrLivArea+
+                 YearBuilt+
+                 factor(SaleCondition)+ 
+                 OverallQual+
+                 factor(KitchenQual)+
+                 factor(BldgType)+
+                 log(LotArea)+
+                 OverallCond+
+                 LotFrontage+
+                 TotBathrooms*TotalSqFeet+
+                 Fireplaces+
+                 factor(LotShape)+
+                 factor(Neighborhood),
+               data= cimp,
+               preProcess = c("center", "scale"),
+               method="lasso",
+               na.action = na.pass,
+               trControl= tc)
+lasso 
+#fraction  RMSE       Rsquared   MAE       
+#  0.9       0.1266336  0.8998514  0.08803039
+#Out of Sample RMSE :  0.1266336
+
+plot(lasso,which=1)
+
+
+
+
+
+#RIDGE
+set.seed(418)
+ridge <- train(log(SalePrice) ~
+                 TotalBsmtSF*GrLivArea+
+                 YearBuilt+
+                 factor(SaleCondition)+ 
+                 OverallQual+
+                 factor(KitchenQual)+
+                 factor(BldgType)+
+                 log(LotArea)+OverallCond+LotFrontage+factor(Neighborhood), 
+               data= cimp,
+               preProcess = c("center", "scale"),
+               method="ridge",
+               na.action = na.pass,
+               trControl= tc)
+
+ridge
+
+#lambda  RMSE       Rsquared   MAE       
+#  0e+00   0.1304374  0.8937365  0.09281496
+
+
+plot(ridge,which=1)
+
+
+```
+
+
+
+#PREDICTIONS :
+
+```{r}
+#1.
+##Predictions on lm_caret model
+#Check head of the test data.
+head(test,1)
+
+#Doing the same imputation on test data as we did on train data 
+test_new <- subset(test, select=-c(7,58,72,73,74,75,76,46,37))
+dim(test_new)
+
+
+#Missforest imputation on Test data 
+set.seed(418)
+ctest <- missForest(test_new)$ximp
+
+
+#Feature engineering to create two variables that were used in train data during modeling.
+ctest$TotBathrooms <- ctest$FullBath + (ctest$HalfBath*0.5) + ctest$BsmtFullBath + (ctest$BsmtHalfBath*0.5)
+ctest$TotalSqFeet <- ctest$GrLivArea + ctest$TotalBsmtSF
+
+#
+dim(ctest)
+#predictions on test data
+pred_lm_caret <- exp(predict(lm_caret, newdata = ctest))
+pred_lasso <- exp(predict(lasso, newdata = ctest))
+pred_ridge <- exp(predict(ridge, newdata = ctest))
+
+# number of predictions are same as test data rows.
+length(pred_lm_caret)
+length(pred_lasso)
+length(pred_ridge)
+
+#comparing the 1st 10 predictions for different models applied.
+pred_lm_caret[1:10]
+pred_lasso[1:10]
+pred_ridge[1:10]
+
+
+#SUBMISSION TO KAGGLE
+# we must create a dataset that exactly matches submission criteria with our own predictions.
+#For us lasso did best and we chose lasso predition over other models.
+
+
+sample_predictions <- data.frame(Id = test$Id,
+                                 SalePrice = pred_lasso)
+
+
+
+head(sample_predictions)
+
+
+
+# Make sure there are no NAs
+
+all(complete.cases(sample_predictions))
+
+
+
+
+# Export your prediction data.frame as a .csv file.
+
+write.csv(sample_predictions, "submission.csv",row.names=F)
+
+```
+
+
+
+
+```{r}
+   
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
